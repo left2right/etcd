@@ -19,12 +19,14 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 )
 
+// remote
 type remote struct {
 	id       types.ID
 	status   *peerStatus
 	pipeline *pipeline
 }
 
+// startRemote
 func startRemote(tr *Transport, urls types.URLs, id types.ID) *remote {
 	picker := newURLPicker(urls)
 	status := newPeerStatus(id)
@@ -45,6 +47,7 @@ func startRemote(tr *Transport, urls types.URLs, id types.ID) *remote {
 	}
 }
 
+// send
 func (g *remote) send(m raftpb.Message) {
 	select {
 	case g.pipeline.msgc <- m:

@@ -37,6 +37,8 @@ const (
 	// 64KB should be large enough for not causing
 	// throughput bottleneck as well as small enough
 	// for not causing a read timeout.
+	// connReadLimitByte 限制一次读请求可以读出的bytes数
+	// 64KB 应该即不引起吞吐瓶颈也不至于导致读取超时
 	connReadLimitByte = 64 * 1024
 )
 
@@ -50,6 +52,7 @@ var (
 	errClusterIDMismatch   = errors.New("cluster ID mismatch")
 )
 
+// peerGetter 根据id获取Peer接口
 type peerGetter interface {
 	Get(id types.ID) Peer
 }
@@ -58,6 +61,7 @@ type writerToResponse interface {
 	WriteTo(w http.ResponseWriter)
 }
 
+// pipelineHandler
 type pipelineHandler struct {
 	tr  Transporter
 	r   Raft
@@ -69,6 +73,7 @@ type pipelineHandler struct {
 //
 // The handler reads out the raft message from request body,
 // and forwards it to the given raft state machine for processing.
+// newPipelineHandler 返回处理从pipeline来的raft消息的handler
 func newPipelineHandler(tr Transporter, r Raft, cid types.ID) http.Handler {
 	return &pipelineHandler{
 		tr:  tr,
@@ -77,6 +82,7 @@ func newPipelineHandler(tr Transporter, r Raft, cid types.ID) http.Handler {
 	}
 }
 
+// ServeHTTP
 func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		w.Header().Set("Allow", "POST")
@@ -137,6 +143,7 @@ func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// snapshotHandler
 type snapshotHandler struct {
 	tr          Transporter
 	r           Raft
@@ -144,6 +151,7 @@ type snapshotHandler struct {
 	cid         types.ID
 }
 
+// newSnapshotHandler 返回一个snapshot handler
 func newSnapshotHandler(tr Transporter, r Raft, snapshotter *snap.Snapshotter, cid types.ID) http.Handler {
 	return &snapshotHandler{
 		tr:          tr,
@@ -162,6 +170,7 @@ func newSnapshotHandler(tr Transporter, r Raft, snapshotter *snap.Snapshotter, c
 // 1. snapshot messages sent through other TCP connections could still be
 // received and processed.
 // 2. this case should happen rarely, so no further optimization is done.
+// ServeHTTP 处理HTTP请求，接收和处理snapshot信息
 func (h *snapshotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		w.Header().Set("Allow", "POST")
@@ -231,6 +240,7 @@ func (h *snapshotHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// streamHandler
 type streamHandler struct {
 	tr         *Transport
 	peerGetter peerGetter
@@ -239,6 +249,7 @@ type streamHandler struct {
 	cid        types.ID
 }
 
+// newStreamHandler 返回一个streamHandler
 func newStreamHandler(tr *Transport, pg peerGetter, r Raft, id, cid types.ID) http.Handler {
 	return &streamHandler{
 		tr:         tr,
@@ -249,6 +260,7 @@ func newStreamHandler(tr *Transport, pg peerGetter, r Raft, id, cid types.ID) ht
 	}
 }
 
+// ServeHTTP
 func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		w.Header().Set("Allow", "GET")
@@ -329,6 +341,8 @@ func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // It checks whether the version of local member is compatible with
 // the versions in the header, and whether the cluster ID of local member
 // matches the one in the header.
+// checkClusterCompatibilityFromHeader 检查集群的本地成员和给定的header兼容一致
+// 它检查本地成员的版本号和header的版本一致，以及本地成员的集群id和header中的一致
 func checkClusterCompatibilityFromHeader(header http.Header, cid types.ID) error {
 	if err := checkVersionCompability(header.Get("X-Server-From"), serverVersion(header), minClusterVersion(header)); err != nil {
 		plog.Errorf("request version incompatibility (%v)", err)
@@ -341,19 +355,23 @@ func checkClusterCompatibilityFromHeader(header http.Header, cid types.ID) error
 	return nil
 }
 
+// closeNotifier
 type closeNotifier struct {
 	done chan struct{}
 }
 
+// newCloseNotifier 返回一个closeNotifier
 func newCloseNotifier() *closeNotifier {
 	return &closeNotifier{
 		done: make(chan struct{}),
 	}
 }
 
+// Close closeNotifier 的channel
 func (n *closeNotifier) Close() error {
 	close(n.done)
 	return nil
 }
 
+// closeNotify
 func (n *closeNotifier) closeNotify() <-chan struct{} { return n.done }

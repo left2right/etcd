@@ -46,16 +46,19 @@ func max(a, b uint64) uint64 {
 	return b
 }
 
+// LocalMsg 判断是否是本地信息
 func IsLocalMsg(msgt pb.MessageType) bool {
 	return msgt == pb.MsgHup || msgt == pb.MsgBeat || msgt == pb.MsgUnreachable ||
 		msgt == pb.MsgSnapStatus || msgt == pb.MsgCheckQuorum
 }
 
+// IsResponseMsg 判断是否是返回信息
 func IsResponseMsg(msgt pb.MessageType) bool {
 	return msgt == pb.MsgAppResp || msgt == pb.MsgVoteResp || msgt == pb.MsgHeartbeatResp || msgt == pb.MsgUnreachable || msgt == pb.MsgPreVoteResp
 }
 
 // voteResponseType maps vote and prevote message types to their corresponding responses.
+// voteResponseType 映射vote和prevote信息类型到他们相应的返回信息类型
 func voteRespMsgType(msgt pb.MessageType) pb.MessageType {
 	switch msgt {
 	case pb.MsgVote:
@@ -73,6 +76,7 @@ type EntryFormatter func([]byte) string
 
 // DescribeMessage returns a concise human-readable description of a
 // Message for debugging.
+// DescribeMessage 返回人们可读的信息描述，用来调试
 func DescribeMessage(m pb.Message, f EntryFormatter) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%x->%x %v Term:%d Log:%d/%d", m.From, m.To, m.Type, m.Term, m.LogTerm, m.Index)
@@ -103,6 +107,7 @@ func DescribeMessage(m pb.Message, f EntryFormatter) string {
 
 // DescribeEntry returns a concise human-readable description of an
 // Entry for debugging.
+// DescribeEntry 返回一个人们可读掉Entry描述，用来调试
 func DescribeEntry(e pb.Entry, f EntryFormatter) string {
 	var formatted string
 	if e.Type == pb.EntryNormal && f != nil {
@@ -113,6 +118,7 @@ func DescribeEntry(e pb.Entry, f EntryFormatter) string {
 	return fmt.Sprintf("%d/%d %s %s", e.Term, e.Index, e.Type, formatted)
 }
 
+// limitSize 限制ents的大小
 func limitSize(ents []pb.Entry, maxSize uint64) []pb.Entry {
 	if len(ents) == 0 {
 		return ents

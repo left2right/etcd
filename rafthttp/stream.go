@@ -58,6 +58,7 @@ var (
 
 type streamType string
 
+// endpoint
 func (t streamType) endpoint() string {
 	switch t {
 	case streamTypeMsgAppV2:
@@ -70,6 +71,7 @@ func (t streamType) endpoint() string {
 	}
 }
 
+// String
 func (t streamType) String() string {
 	switch t {
 	case streamTypeMsgAppV2:
@@ -85,13 +87,17 @@ var (
 	// linkHeartbeatMessage is a special message used as heartbeat message in
 	// link layer. It never conflicts with messages from raft because raft
 	// doesn't send out messages without From and To fields.
+	// linkHeartbeatMessage 是一个特殊的信息，用在连接层做心跳信息。这个信息不会和raft的信息冲突
+	// 因为raft不回发送没有From和To字段的信息
 	linkHeartbeatMessage = raftpb.Message{Type: raftpb.MsgHeartbeat}
 )
 
+// isLinkHeartbeatMessage 是否是linkHeartbeatMessage
 func isLinkHeartbeatMessage(m *raftpb.Message) bool {
 	return m.Type == raftpb.MsgHeartbeat && m.From == 0 && m.To == 0
 }
 
+// outgoingConn
 type outgoingConn struct {
 	t streamType
 	io.Writer
@@ -100,6 +106,7 @@ type outgoingConn struct {
 }
 
 // streamWriter writes messages to the attached outgoingConn.
+// streamWriter 将信息写入到附属的outgoingConn
 type streamWriter struct {
 	peerID types.ID
 	status *peerStatus
@@ -118,6 +125,8 @@ type streamWriter struct {
 
 // startStreamWriter creates a streamWrite and starts a long running go-routine that accepts
 // messages and writes to the attached outgoing connection.
+// startStreamWriter 创建一个streamWriter，并且启动一个长时间运行的goroutine，来接收信息，并将信息写入到
+// 附属的出链接
 func startStreamWriter(id types.ID, status *peerStatus, fs *stats.FollowerStats, r Raft) *streamWriter {
 	w := &streamWriter{
 		peerID: id,
@@ -227,18 +236,21 @@ func (cw *streamWriter) run() {
 	}
 }
 
+// writec
 func (cw *streamWriter) writec() (chan<- raftpb.Message, bool) {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 	return cw.msgc, cw.working
 }
 
+// close
 func (cw *streamWriter) close() bool {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 	return cw.closeUnlocked()
 }
 
+// closeUnlocked
 func (cw *streamWriter) closeUnlocked() bool {
 	if !cw.working {
 		return false
@@ -252,6 +264,7 @@ func (cw *streamWriter) closeUnlocked() bool {
 	return true
 }
 
+// attach
 func (cw *streamWriter) attach(conn *outgoingConn) bool {
 	select {
 	case cw.connc <- conn:
@@ -261,6 +274,7 @@ func (cw *streamWriter) attach(conn *outgoingConn) bool {
 	}
 }
 
+// stop
 func (cw *streamWriter) stop() {
 	close(cw.stopc)
 	<-cw.done
@@ -268,6 +282,7 @@ func (cw *streamWriter) stop() {
 
 // streamReader is a long-running go-routine that dials to the remote stream
 // endpoint and reads messages from the response body returned.
+// streamReader 是一个长时间运行到goroutine，链接到远端流，读取信息
 type streamReader struct {
 	peerID types.ID
 	typ    streamType
@@ -289,6 +304,7 @@ type streamReader struct {
 	done  chan struct{}
 }
 
+// start streamReader
 func (r *streamReader) start() {
 	r.stopc = make(chan struct{})
 	r.done = make(chan struct{})
@@ -299,6 +315,7 @@ func (r *streamReader) start() {
 	go r.run()
 }
 
+// run
 func (cr *streamReader) run() {
 	t := cr.typ
 	plog.Infof("started streaming with peer %s (%s reader)", cr.peerID, t)
@@ -334,6 +351,7 @@ func (cr *streamReader) run() {
 	}
 }
 
+// decodeLoop
 func (cr *streamReader) decodeLoop(rc io.ReadCloser, t streamType) error {
 	var dec decoder
 	cr.mu.Lock()
@@ -400,6 +418,7 @@ func (cr *streamReader) decodeLoop(rc io.ReadCloser, t streamType) error {
 	}
 }
 
+// stop
 func (cr *streamReader) stop() {
 	close(cr.stopc)
 	cr.mu.Lock()
@@ -411,6 +430,7 @@ func (cr *streamReader) stop() {
 	<-cr.done
 }
 
+// dial
 func (cr *streamReader) dial(t streamType) (io.ReadCloser, error) {
 	u := cr.picker.pick()
 	uu := u
@@ -495,6 +515,7 @@ func (cr *streamReader) dial(t streamType) (io.ReadCloser, error) {
 	}
 }
 
+// close
 func (cr *streamReader) close() {
 	if cr.closer != nil {
 		cr.closer.Close()
@@ -502,12 +523,14 @@ func (cr *streamReader) close() {
 	cr.closer = nil
 }
 
+// pause
 func (cr *streamReader) pause() {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 	cr.paused = true
 }
 
+// resume
 func (cr *streamReader) resume() {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
@@ -516,6 +539,7 @@ func (cr *streamReader) resume() {
 
 // checkStreamSupport checks whether the stream type is supported in the
 // given version.
+// checkStreamSupport 检查tream type在给定的版本中是否支持
 func checkStreamSupport(v *semver.Version, t streamType) bool {
 	nv := &semver.Version{Major: v.Major, Minor: v.Minor}
 	for _, s := range supportedStream[nv.String()] {

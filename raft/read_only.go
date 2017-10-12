@@ -21,23 +21,27 @@ import pb "github.com/coreos/etcd/raft/raftpb"
 // this state from ready, It's also caller's duty to differentiate if this
 // state is what it requests through RequestCtx, eg. given a unique id as
 // RequestCtx
+// ReadState 结构体
 type ReadState struct {
 	Index      uint64
 	RequestCtx []byte
 }
 
+// readIndexStatus 结构体
 type readIndexStatus struct {
 	req   pb.Message
 	index uint64
 	acks  map[uint64]struct{}
 }
 
+// readOnly 结构体
 type readOnly struct {
 	option           ReadOnlyOption
 	pendingReadIndex map[string]*readIndexStatus
 	readIndexQueue   []string
 }
 
+// newReadOnly 创建一个readOnly结构体
 func newReadOnly(option ReadOnlyOption) *readOnly {
 	return &readOnly{
 		option:           option,
@@ -49,6 +53,9 @@ func newReadOnly(option ReadOnlyOption) *readOnly {
 // `index` is the commit index of the raft state machine when it received
 // the read only request.
 // `m` is the original read only request message from the local or remote node.
+// addRequest 将一个只读请求加入到readonly struct。index是当前raft状态机的commit index，
+// m是最初的从本机或者远端节点发过来的只读消息。如果该消息在pendingReadIndex中查询到其状态，直接返回
+// 否则创建一个readIndexStatus，将其追加到ro.readIndexQueue
 func (ro *readOnly) addRequest(index uint64, m pb.Message) {
 	ctx := string(m.Entries[0].Data)
 	if _, ok := ro.pendingReadIndex[ctx]; ok {
@@ -61,6 +68,7 @@ func (ro *readOnly) addRequest(index uint64, m pb.Message) {
 // recvAck notifies the readonly struct that the raft state machine received
 // an acknowledgment of the heartbeat that attached with the read only request
 // context.
+// recvAck 通知readonly结构体，raft状态机接收到一个伴随在只读请求context的心跳响应
 func (ro *readOnly) recvAck(m pb.Message) int {
 	rs, ok := ro.pendingReadIndex[string(m.Context)]
 	if !ok {
@@ -75,6 +83,7 @@ func (ro *readOnly) recvAck(m pb.Message) int {
 // advance advances the read only request queue kept by the readonly struct.
 // It dequeues the requests until it finds the read only request that has
 // the same context as the given `m`.
+// advance推进保存在只读结构体的只读请求队列，将这些请求出队列，直到发现和m一样的context的只读请求
 func (ro *readOnly) advance(m pb.Message) []*readIndexStatus {
 	var (
 		i     int
@@ -110,6 +119,7 @@ func (ro *readOnly) advance(m pb.Message) []*readIndexStatus {
 
 // lastPendingRequestCtx returns the context of the last pending read only
 // request in readonly struct.
+// lastPendingRequestCtx 返回只读结构体最后一个pending的只读请求
 func (ro *readOnly) lastPendingRequestCtx() string {
 	if len(ro.readIndexQueue) == 0 {
 		return ""

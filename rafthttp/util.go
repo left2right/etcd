@@ -36,12 +36,14 @@ var (
 
 // NewListener returns a listener for raft message transfer between peers.
 // It uses timeout listener to identify broken streams promptly.
+// NewListener 返回一个用来在各peer之间传输信息的listener。它使用超时的listener来识别坏掉的stream
 func NewListener(u url.URL, tlsinfo *transport.TLSInfo) (net.Listener, error) {
 	return transport.NewTimeoutListener(u.Host, u.Scheme, tlsinfo, ConnReadTimeout, ConnWriteTimeout)
 }
 
 // NewRoundTripper returns a roundTripper used to send requests
 // to rafthttp listener of remote peers.
+// NewRoundTripper 返回一个roundTripper，用来发送请求到远端的rafthttp listener
 func NewRoundTripper(tlsInfo transport.TLSInfo, dialTimeout time.Duration) (http.RoundTripper, error) {
 	// It uses timeout transport to pair with remote timeout listeners.
 	// It sets no read/write timeout, because message in requests may
@@ -54,11 +56,14 @@ func NewRoundTripper(tlsInfo transport.TLSInfo, dialTimeout time.Duration) (http
 // Read/write timeout is set for stream roundTripper to promptly
 // find out broken status, which minimizes the number of messages
 // sent on broken connection.
+// newStreamRoundTripper 返回一个roundTripper，用来发送stream请求给远端的rafthttp listener
+// 为stream roundTripper设置了读写超时，来迅速的发现坏掉的状态，尽量建设发送消息到坏掉的链接
 func newStreamRoundTripper(tlsInfo transport.TLSInfo, dialTimeout time.Duration) (http.RoundTripper, error) {
 	return transport.NewTimeoutTransport(tlsInfo, dialTimeout, ConnReadTimeout, ConnWriteTimeout)
 }
 
 // createPostRequest creates a HTTP POST request that sends raft message.
+// createPostRequest 创建一个HTTP pOST请求来发送raft信息
 func createPostRequest(u url.URL, path string, body io.Reader, ct string, urls types.URLs, from, cid types.ID) *http.Request {
 	uu := u
 	uu.Path = path
@@ -78,6 +83,7 @@ func createPostRequest(u url.URL, path string, body io.Reader, ct string, urls t
 
 // checkPostResponse checks the response of the HTTP POST request that sends
 // raft message.
+// checkPostResponse 检查发送raft信息的HTTP POST请求的返回情况
 func checkPostResponse(resp *http.Response, body []byte, req *http.Request, to types.ID) error {
 	switch resp.StatusCode {
 	case http.StatusPreconditionFailed:
@@ -106,6 +112,7 @@ func checkPostResponse(resp *http.Response, body []byte, req *http.Request, to t
 // If the error channel is filled up when sending error, it drops the error
 // because the fact that error has happened is reported, which is
 // good enough.
+// reportCriticalError
 func reportCriticalError(err error, errc chan<- error) {
 	select {
 	case errc <- err:
@@ -116,6 +123,7 @@ func reportCriticalError(err error, errc chan<- error) {
 // compareMajorMinorVersion returns an integer comparing two versions based on
 // their major and minor version. The result will be 0 if a==b, -1 if a < b,
 // and 1 if a > b.
+// compareMajorMinorVersion 比较两个版本
 func compareMajorMinorVersion(a, b *semver.Version) int {
 	na := &semver.Version{Major: a.Major, Minor: a.Minor}
 	nb := &semver.Version{Major: b.Major, Minor: b.Minor}
@@ -130,6 +138,7 @@ func compareMajorMinorVersion(a, b *semver.Version) int {
 }
 
 // serverVersion returns the server version from the given header.
+// serverVersion 返回server 版本在header里
 func serverVersion(h http.Header) *semver.Version {
 	verStr := h.Get("X-Server-Version")
 	// backward compatibility with etcd 2.0
@@ -140,6 +149,7 @@ func serverVersion(h http.Header) *semver.Version {
 }
 
 // serverVersion returns the min cluster version from the given header.
+// minClusterVersion 返回最小的集群版本
 func minClusterVersion(h http.Header) *semver.Version {
 	verStr := h.Get("X-Min-Cluster-Version")
 	// backward compatibility with etcd 2.0
@@ -151,6 +161,7 @@ func minClusterVersion(h http.Header) *semver.Version {
 
 // checkVersionCompability checks whether the given version is compatible
 // with the local version.
+// checkVersionCompability 检查给定版本是否和本地版本兼容
 func checkVersionCompability(name string, server, minCluster *semver.Version) error {
 	localServer := semver.Must(semver.NewVersion(version.Version))
 	localMinCluster := semver.Must(semver.NewVersion(version.MinClusterVersion))
@@ -164,6 +175,7 @@ func checkVersionCompability(name string, server, minCluster *semver.Version) er
 }
 
 // setPeerURLsHeader reports local urls for peer discovery
+// setPeerURLsHeader 报告本地url，用来peer发现
 func setPeerURLsHeader(req *http.Request, urls types.URLs) {
 	if urls == nil {
 		// often not set in unit tests

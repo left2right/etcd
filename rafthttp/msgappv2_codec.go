@@ -37,13 +37,16 @@ const (
 // msgappv2 stream sends three types of message: linkHeartbeatMessage,
 // AppEntries and MsgApp. AppEntries is the MsgApp that is sent in
 // replicate state in raft, whose index and term are fully predictable.
-//
+// msgappv2 stream发送三类型信息：linkHeartbeatMessage，AppEntries and MsgApp。AppEntries是
+// 在复制状态的MsgApp，它的index和term都是完全可以预测的
 // Data format of linkHeartbeatMessage:
+// linkHeartbeatMessage类型的数据格式
 // | offset | bytes | description |
 // +--------+-------+-------------+
 // | 0      | 1     | \x00        |
 //
 // Data format of AppEntries:
+// AppEntries 的数据格式
 // | offset | bytes | description |
 // +--------+-------+-------------+
 // | 0      | 1     | \x01        |
@@ -56,11 +59,13 @@ const (
 // | x+8+nk | 8     | commit index |
 //
 // Data format of MsgApp:
+// MsgApp的数据格式
 // | offset | bytes | description |
 // +--------+-------+-------------+
 // | 0      | 1     | \x02        |
 // | 1      | 8     | length of encoded message |
 // | 9      | n     | encoded message |
+// msgAppV2Encoder
 type msgAppV2Encoder struct {
 	w  io.Writer
 	fs *stats.FollowerStats
@@ -72,6 +77,7 @@ type msgAppV2Encoder struct {
 	uint8buf  []byte
 }
 
+// newMsgAppV2Encoder 返回一个msgAppV2Encoder
 func newMsgAppV2Encoder(w io.Writer, fs *stats.FollowerStats) *msgAppV2Encoder {
 	return &msgAppV2Encoder{
 		w:         w,
@@ -82,6 +88,7 @@ func newMsgAppV2Encoder(w io.Writer, fs *stats.FollowerStats) *msgAppV2Encoder {
 	}
 }
 
+// encode 是msgAppV2Encoder 对信息进行编码的函数
 func (enc *msgAppV2Encoder) encode(m *raftpb.Message) error {
 	start := time.Now()
 	switch {
@@ -149,6 +156,7 @@ func (enc *msgAppV2Encoder) encode(m *raftpb.Message) error {
 	return nil
 }
 
+// msgAppV2Decoder
 type msgAppV2Decoder struct {
 	r             io.Reader
 	local, remote types.ID
@@ -160,6 +168,7 @@ type msgAppV2Decoder struct {
 	uint8buf  []byte
 }
 
+// newMsgAppV2Decoder 返回一个msgAppV2Decoder
 func newMsgAppV2Decoder(r io.Reader, local, remote types.ID) *msgAppV2Decoder {
 	return &msgAppV2Decoder{
 		r:         r,
@@ -171,6 +180,7 @@ func newMsgAppV2Decoder(r io.Reader, local, remote types.ID) *msgAppV2Decoder {
 	}
 }
 
+// decode 是msgAppV2Decoder的解码函数
 func (dec *msgAppV2Decoder) decode() (raftpb.Message, error) {
 	var (
 		m   raftpb.Message

@@ -33,6 +33,7 @@ import (
 
 var plog = logutil.NewMergeLogger(capnslog.NewPackageLogger("github.com/coreos/etcd", "rafthttp"))
 
+// Raft 接口
 type Raft interface {
 	Process(ctx context.Context, m raftpb.Message) error
 	IsIDRemoved(id uint64) bool
@@ -40,50 +41,62 @@ type Raft interface {
 	ReportSnapshot(id uint64, status raft.SnapshotStatus)
 }
 
+// Transporter 接口
 type Transporter interface {
 	// Start starts the given Transporter.
 	// Start MUST be called before calling other functions in the interface.
+	// Start 启动给定的Transporter，Start必须在调用其他函数前调用
 	Start() error
 	// Handler returns the HTTP handler of the transporter.
 	// A transporter HTTP handler handles the HTTP requests
 	// from remote peers.
 	// The handler MUST be used to handle RaftPrefix(/raft)
 	// endpoint.
+	// Handler 返回transporter的http handler
 	Handler() http.Handler
 	// Send sends out the given messages to the remote peers.
 	// Each message has a To field, which is an id that maps
 	// to an existing peer in the transport.
 	// If the id cannot be found in the transport, the message
 	// will be ignored.
+	// Send 发送给定的消息到远端节点，每个消息里面的To field，都是transport中一个peer的id
 	Send(m []raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
+	// SendSnapshot 将snapshot信息发送给远端peer
 	SendSnapshot(m snap.Message)
 	// AddRemote adds a remote with given peer urls into the transport.
 	// A remote helps newly joined member to catch up the progress of cluster,
 	// and will not be used after that.
 	// It is the caller's responsibility to ensure the urls are all valid,
 	// or it panics.
+	// AddRemote 添加一个给定的peer url的remote加入到该transport
 	AddRemote(id types.ID, urls []string)
 	// AddPeer adds a peer with given peer urls into the transport.
 	// It is the caller's responsibility to ensure the urls are all valid,
 	// or it panics.
 	// Peer urls are used to connect to the remote peer.
+	// AddPeer添加一个给定的peer url的peer到该transport
 	AddPeer(id types.ID, urls []string)
 	// RemovePeer removes the peer with given id.
+	// RemovePeer 去除给定id的peer
 	RemovePeer(id types.ID)
 	// RemoveAllPeers removes all the existing peers in the transport.
+	// RemoveAllPeers 去除transport里的所有存在的peers
 	RemoveAllPeers()
 	// UpdatePeer updates the peer urls of the peer with the given id.
 	// It is the caller's responsibility to ensure the urls are all valid,
 	// or it panics.
+	// UpdatePeer 更新给定id的peer 的url
 	UpdatePeer(id types.ID, urls []string)
 	// ActiveSince returns the time that the connection with the peer
 	// of the given id becomes active.
 	// If the connection is active since peer was added, it returns the adding time.
 	// If the connection is currently inactive, it returns zero time.
+	// ActiveSince 返回该peer的活跃时间
 	ActiveSince(id types.ID) time.Time
 	// Stop closes the connections and stops the transporter.
+	// Stop 关闭链接并停止该transporter
 	Stop()
 }
 
@@ -93,6 +106,9 @@ type Transporter interface {
 // received from peerURLs.
 // User needs to call Start before calling other functions, and call
 // Stop when the Transport is no longer used.
+// Transport 实现了Transporter接口。它提供功能，发送及接收raft信息到相应peers。
+// 用户应该调用Handler放放来获取响应请求的handler
+// 用户应该首先调用Start函数，并且在Transport不再使用时调用Stop
 type Transport struct {
 	DialTimeout time.Duration     // maximum duration before timing out dial of the request
 	TLSInfo     transport.TLSInfo // TLS information used when creating connection
@@ -122,6 +138,7 @@ type Transport struct {
 	prober probing.Prober
 }
 
+// Start 启动Transport，做些基本的初始化复值
 func (t *Transport) Start() error {
 	var err error
 	t.streamRt, err = newStreamRoundTripper(t.TLSInfo, t.DialTimeout)
@@ -138,6 +155,7 @@ func (t *Transport) Start() error {
 	return nil
 }
 
+// Handler
 func (t *Transport) Handler() http.Handler {
 	pipelineHandler := newPipelineHandler(t, t.Raft, t.ClusterID)
 	streamHandler := newStreamHandler(t, t, t.Raft, t.ID, t.ClusterID)
@@ -150,12 +168,14 @@ func (t *Transport) Handler() http.Handler {
 	return mux
 }
 
+// Get
 func (t *Transport) Get(id types.ID) Peer {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.peers[id]
 }
 
+// Send
 func (t *Transport) Send(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		if m.To == 0 {
@@ -186,6 +206,7 @@ func (t *Transport) Send(msgs []raftpb.Message) {
 	}
 }
 
+// Stop
 func (t *Transport) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -207,6 +228,7 @@ func (t *Transport) Stop() {
 }
 
 // CutPeer drops messages to the specified peer.
+// CutPeer 丢弃给指定peer的消息
 func (t *Transport) CutPeer(id types.ID) {
 	t.mu.RLock()
 	p, pok := t.peers[id]
@@ -222,6 +244,7 @@ func (t *Transport) CutPeer(id types.ID) {
 }
 
 // MendPeer recovers the message dropping behavior of the given peer.
+// MendPeer 恢复丢弃指定peer消息的行为
 func (t *Transport) MendPeer(id types.ID) {
 	t.mu.RLock()
 	p, pok := t.peers[id]
@@ -236,6 +259,7 @@ func (t *Transport) MendPeer(id types.ID) {
 	}
 }
 
+// AddRemote
 func (t *Transport) AddRemote(id types.ID, us []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -258,6 +282,7 @@ func (t *Transport) AddRemote(id types.ID, us []string) {
 	t.remotes[id] = startRemote(t, urls, id)
 }
 
+// AddPeer
 func (t *Transport) AddPeer(id types.ID, us []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -279,12 +304,14 @@ func (t *Transport) AddPeer(id types.ID, us []string) {
 	plog.Infof("added peer %s", id)
 }
 
+// RemovePeer
 func (t *Transport) RemovePeer(id types.ID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.removePeer(id)
 }
 
+// RemoveAllPeers
 func (t *Transport) RemoveAllPeers() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -294,6 +321,7 @@ func (t *Transport) RemoveAllPeers() {
 }
 
 // the caller of this function must have the peers mutex.
+// removePeer
 func (t *Transport) removePeer(id types.ID) {
 	if peer, ok := t.peers[id]; ok {
 		peer.stop()
@@ -306,6 +334,7 @@ func (t *Transport) removePeer(id types.ID) {
 	plog.Infof("removed peer %s", id)
 }
 
+// UpdatePeer
 func (t *Transport) UpdatePeer(id types.ID, us []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -324,6 +353,7 @@ func (t *Transport) UpdatePeer(id types.ID, us []string) {
 	plog.Infof("updated peer %s", id)
 }
 
+// ActiveSince
 func (t *Transport) ActiveSince(id types.ID) time.Time {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -333,6 +363,7 @@ func (t *Transport) ActiveSince(id types.ID) time.Time {
 	return time.Time{}
 }
 
+// SendSnapshot
 func (t *Transport) SendSnapshot(m snap.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -345,6 +376,7 @@ func (t *Transport) SendSnapshot(m snap.Message) {
 }
 
 // Pausable is a testing interface for pausing transport traffic.
+// Pausable 是一个测试接口，来暂停transport
 type Pausable interface {
 	Pause()
 	Resume()
@@ -382,6 +414,7 @@ func (s *nopTransporter) Stop()                               {}
 func (s *nopTransporter) Pause()                              {}
 func (s *nopTransporter) Resume()                             {}
 
+// snapTransporter
 type snapTransporter struct {
 	nopTransporter
 	snapDoneC chan snap.Message

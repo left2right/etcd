@@ -20,6 +20,7 @@ import (
 	pb "github.com/coreos/etcd/raft/raftpb"
 )
 
+// Status raft的状态信息
 type Status struct {
 	ID uint64
 
@@ -31,6 +32,7 @@ type Status struct {
 }
 
 // getStatus gets a copy of the current raft status.
+// getStatus 获得raft一份当前的状态
 func getStatus(r *raft) Status {
 	s := Status{ID: r.id}
 	s.HardState = r.hardState()
@@ -50,6 +52,7 @@ func getStatus(r *raft) Status {
 
 // MarshalJSON translates the raft status into JSON.
 // TODO: try to simplify this by introducing ID type into raft
+// MarshalJSON 将raft状态转换为JSON串
 func (s Status) MarshalJSON() ([]byte, error) {
 	j := fmt.Sprintf(`{"id":"%x","term":%d,"vote":"%x","commit":%d,"lead":"%x","raftState":%q,"progress":{`,
 		s.ID, s.Term, s.Vote, s.Commit, s.Lead, s.RaftState)
@@ -67,6 +70,7 @@ func (s Status) MarshalJSON() ([]byte, error) {
 	return []byte(j), nil
 }
 
+// String 返回raft状态的字符串表示
 func (s Status) String() string {
 	b, err := s.MarshalJSON()
 	if err != nil {

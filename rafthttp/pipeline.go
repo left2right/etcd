@@ -35,11 +35,14 @@ const (
 	// temporary network latency.
 	// The size ensures that pipeline does not drop messages when the network
 	// is out of work for less than 1 second in good path.
+	// pipelineBufSize 是pepeline的buffer，帮助应对暂时的网络延迟。这个大小保证pipeline不会
+	// 丢弃网络里的信息（在1秒钟不可用的网络）
 	pipelineBufSize = 64
 )
 
 var errStopped = errors.New("stopped")
 
+// pipeline
 type pipeline struct {
 	peerID types.ID
 
@@ -57,6 +60,7 @@ type pipeline struct {
 	stopc chan struct{}
 }
 
+// start 启动pipeline
 func (p *pipeline) start() {
 	p.stopc = make(chan struct{})
 	p.msgc = make(chan raftpb.Message, pipelineBufSize)
@@ -67,12 +71,14 @@ func (p *pipeline) start() {
 	plog.Infof("started HTTP pipelining with peer %s", p.peerID)
 }
 
+// stop pipeline
 func (p *pipeline) stop() {
 	close(p.stopc)
 	p.wg.Wait()
 	plog.Infof("stopped HTTP pipelining with peer %s", p.peerID)
 }
 
+// handle 处理请求
 func (p *pipeline) handle() {
 	defer p.wg.Done()
 
@@ -113,6 +119,7 @@ func (p *pipeline) handle() {
 
 // post POSTs a data payload to a url. Returns nil if the POST succeeds,
 // error on any failure.
+// post POST 一个数据到url
 func (p *pipeline) post(data []byte) (err error) {
 	u := p.picker.pick()
 	req := createPostRequest(u, RaftPrefix, bytes.NewBuffer(data), "application/protobuf", p.tr.URLs, p.tr.ID, p.tr.ClusterID)
@@ -157,4 +164,5 @@ func (p *pipeline) post(data []byte) (err error) {
 }
 
 // waitSchedule waits other goroutines to be scheduled for a while
+// waitSchedule sleep
 func waitSchedule() { time.Sleep(time.Millisecond) }

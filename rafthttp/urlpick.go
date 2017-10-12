@@ -21,18 +21,21 @@ import (
 	"github.com/coreos/etcd/pkg/types"
 )
 
+// urlPicker
 type urlPicker struct {
 	mu     sync.Mutex // guards urls and picked
 	urls   types.URLs
 	picked int
 }
 
+// newURLPicker
 func newURLPicker(urls types.URLs) *urlPicker {
 	return &urlPicker{
 		urls: urls,
 	}
 }
 
+// update
 func (p *urlPicker) update(urls types.URLs) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -40,6 +43,7 @@ func (p *urlPicker) update(urls types.URLs) {
 	p.picked = 0
 }
 
+// pick
 func (p *urlPicker) pick() url.URL {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -48,6 +52,7 @@ func (p *urlPicker) pick() url.URL {
 
 // unreachable notices the picker that the given url is unreachable,
 // and it should use other possible urls.
+// unreachable 通知picker，给定的url不可访问了，应该用别的urls
 func (p *urlPicker) unreachable(u url.URL) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

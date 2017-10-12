@@ -32,16 +32,19 @@ var (
 	emptyState = pb.HardState{}
 
 	// ErrStopped is returned by methods on Nodes that have been stopped.
+	// ErrStopped 被操作已经停止的node节点的方法返回
 	ErrStopped = errors.New("raft: stopped")
 )
 
 // SoftState provides state that is useful for logging and debugging.
 // The state is volatile and does not need to be persisted to the WAL.
+// SoftState 提供的状态用来记录log和调试，这个状态是易变的，不需要持久化到WAL
 type SoftState struct {
 	Lead      uint64 // must use atomic operations to access; keep 64-bit aligned.
 	RaftState StateType
 }
 
+// equal 比较SoftState是否相等
 func (a *SoftState) equal(b *SoftState) bool {
 	return a.Lead == b.Lead && a.RaftState == b.RaftState
 }
@@ -49,60 +52,74 @@ func (a *SoftState) equal(b *SoftState) bool {
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
+// Ready 封装那些即将被读取并保存到稳定的storage，commited或者发送给其他peers的entries和messages
 type Ready struct {
 	// The current volatile state of a Node.
 	// SoftState will be nil if there is no update.
 	// It is not required to consume or store SoftState.
+	// SoftState 是node当前易变的状态，如果没有更新，则该状态置空
 	*SoftState
 
 	// The current state of a Node to be saved to stable storage BEFORE
 	// Messages are sent.
 	// HardState will be equal to empty state if there is no update.
+	// HardState 是node当前的状态，需要在messages发送前保存到稳定storage，如果没有更新，就是emtpy状态
 	pb.HardState
 
 	// ReadStates can be used for node to serve linearizable read requests locally
 	// when its applied index is greater than the index in ReadState.
 	// Note that the readState will be returned when raft receives msgReadIndex.
 	// The returned is only valid for the request that requested to read.
+	// ReadStates 让node可以满足本地线性读请求
 	ReadStates []ReadState
 
 	// Entries specifies entries to be saved to stable storage BEFORE
 	// Messages are sent.
+	// Entries 指定在发送messages前要被保存到stable storage的entries
 	Entries []pb.Entry
 
 	// Snapshot specifies the snapshot to be saved to stable storage.
+	// Snapshot 指定要保存到stable storage的snapshot
 	Snapshot pb.Snapshot
 
 	// CommittedEntries specifies entries to be committed to a
 	// store/state-machine. These have previously been committed to stable
 	// store.
+	// CommittedEntries 指定要被committed到store或者状态机的entries，这些之前已经committed到stable storage
 	CommittedEntries []pb.Entry
 
 	// Messages specifies outbound messages to be sent AFTER Entries are
 	// committed to stable storage.
 	// If it contains a MsgSnap message, the application MUST report back to raft
 	// when the snapshot has been received or has failed by calling ReportSnapshot.
+	// Messages 指定那些即将发送出去的messages（在Entries 被committed到 stable storage后）
+	// 如果里面保护一个MsgSnap message，应用必须向raft回报，snapshot是否被接收或者失败
 	Messages []pb.Message
 
 	// MustSync indicates whether the HardState and Entries must be synchronously
 	// written to disk or if an asynchronous write is permissible.
+	// MustSync 表明HardState和Entries是否必须被同步写到磁盘或者异步的写也是许可的
 	MustSync bool
 }
 
+// isHardStateEqual 判断两个HardState是否相同
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
 
 // IsEmptyHardState returns true if the given HardState is empty.
+// IsEmptyHardState 判断HardState是否为空
 func IsEmptyHardState(st pb.HardState) bool {
 	return isHardStateEqual(st, emptyState)
 }
 
 // IsEmptySnap returns true if the given Snapshot is empty.
+// IsEmptySnap 判断snapshot是否为空
 func IsEmptySnap(sp pb.Snapshot) bool {
 	return sp.Metadata.Index == 0
 }
 
+// containsUpdates 是否包含更新
 func (rd Ready) containsUpdates() bool {
 	return rd.SoftState != nil || !IsEmptyHardState(rd.HardState) ||
 		!IsEmptySnap(rd.Snapshot) || len(rd.Entries) > 0 ||
@@ -110,19 +127,26 @@ func (rd Ready) containsUpdates() bool {
 }
 
 // Node represents a node in a raft cluster.
+// Node 表示raft集群一个节点的接口
 type Node interface {
 	// Tick increments the internal logical clock for the Node by a single tick. Election
 	// timeouts and heartbeat timeouts are in units of ticks.
+	// Tick 增加节点的逻辑时钟，选举和心跳超时是以这个tick为单位
 	Tick()
 	// Campaign causes the Node to transition to candidate state and start campaigning to become leader.
+	// Campaign 竞选导致Node转换为candidate或者开始竞选成为leader
 	Campaign(ctx context.Context) error
 	// Propose proposes that data be appended to the log.
+	// Propose 打算将数据追加到log entry
 	Propose(ctx context.Context, data []byte) error
 	// ProposeConfChange proposes config change.
 	// At most one ConfChange can be in the process of going through consensus.
 	// Application needs to call ApplyConfChange when applying EntryConfChange type entry.
+	// ProposeConfChange 配置更改的建议。最多有一个ConfChange被处理。应用需要调用ApplyConfChange，在应用
+	// EntryConfChange类型的entry时
 	ProposeConfChange(ctx context.Context, cc pb.ConfChange) error
 	// Step advances the state machine using the given message. ctx.Err() will be returned, if any.
+	// Step使用传递的message推进状态机
 	Step(ctx context.Context, msg pb.Message) error
 
 	// Ready returns a channel that returns the current point-in-time state.
@@ -130,6 +154,7 @@ type Node interface {
 	//
 	// NOTE: No committed entries from the next Ready may be applied until all committed entries
 	// and snapshots from the previous one have finished.
+	// Ready 返回当前状态机的状态的一个channel，用户在通过Ready获取状态后，必须调用Advance函数。
 	Ready() <-chan Ready
 
 	// Advance notifies the Node that the application has saved progress up to the last Ready.
@@ -141,29 +166,37 @@ type Node interface {
 	// commands. For example. when the last Ready contains a snapshot, the application might take
 	// a long time to apply the snapshot data. To continue receiving Ready without blocking raft
 	// progress, it can call Advance before finishing applying the last ready.
+	// Advance 通知node，应用已经保存到最后一个Ready的信息，它可以准备下一个可被使用的Ready了。
 	Advance()
 	// ApplyConfChange applies config change to the local node.
 	// Returns an opaque ConfState protobuf which must be recorded
 	// in snapshots. Will never return nil; it returns a pointer only
 	// to match MemoryStorage.Compact.
+	// ApplyConfChange将配置更改应用到本地节点
 	ApplyConfChange(cc pb.ConfChange) *pb.ConfState
 
 	// TransferLeadership attempts to transfer leadership to the given transferee.
+	// TransferLeadership 尝试将leader地位转换给transferee
 	TransferLeadership(ctx context.Context, lead, transferee uint64)
 
 	// ReadIndex request a read state. The read state will be set in the ready.
 	// Read state has a read index. Once the application advances further than the read
 	// index, any linearizable read requests issued before the read request can be
 	// processed safely. The read state will have the same rctx attached.
+	// ReadIndex 请求一个读状态，这个读状态被设置在ready里面。
 	ReadIndex(ctx context.Context, rctx []byte) error
 
 	// Status returns the current status of the raft state machine.
+	// Status 返回状态机的当前状态
 	Status() Status
 	// ReportUnreachable reports the given node is not reachable for the last send.
+	// ReportUnreachable 报告特定node不能被访问
 	ReportUnreachable(id uint64)
 	// ReportSnapshot reports the status of the sent snapshot.
+	// ReportSnapshot 报告发送的snapshot的状态
 	ReportSnapshot(id uint64, status SnapshotStatus)
 	// Stop performs any necessary termination of the Node.
+	// Stop 执行一些必须的终止操作来停掉这个节点
 	Stop()
 }
 
@@ -174,6 +207,8 @@ type Peer struct {
 
 // StartNode returns a new Node given configuration and a list of raft peers.
 // It appends a ConfChangeAddNode entry for each given peer to the initial log.
+// StartNode 根据给定的配置和raft peers列表创建一个新的node节点。为每个peer追加一个ConfChangeAddNode
+// entry到最初的log里
 func StartNode(c *Config, peers []Peer) Node {
 	r := newRaft(c)
 	// become the follower at term 1 and apply initial configuration
@@ -215,6 +250,7 @@ func StartNode(c *Config, peers []Peer) Node {
 // The current membership of the cluster will be restored from the Storage.
 // If the caller has an existing state machine, pass in the last log index that
 // has been applied to it; otherwise use zero.
+// RestartNode 和StartNode类似，但是没有提供peers的列表，而是基于storage恢复集群关系
 func RestartNode(c *Config) Node {
 	r := newRaft(c)
 
@@ -225,6 +261,7 @@ func RestartNode(c *Config) Node {
 }
 
 // node is the canonical implementation of the Node interface
+// node 是Node接口的官方实现
 type node struct {
 	propc      chan pb.Message
 	recvc      chan pb.Message
@@ -240,6 +277,7 @@ type node struct {
 	logger Logger
 }
 
+// newNode 返回新的空的node实例
 func newNode() node {
 	return node{
 		propc:      make(chan pb.Message),
@@ -258,6 +296,7 @@ func newNode() node {
 	}
 }
 
+// Stop 停止node
 func (n *node) Stop() {
 	select {
 	case n.stop <- struct{}{}:
@@ -270,6 +309,7 @@ func (n *node) Stop() {
 	<-n.done
 }
 
+// run node节点运行raft
 func (n *node) run(r *raft) {
 	var propc chan pb.Message
 	var readyc chan Ready
@@ -392,6 +432,7 @@ func (n *node) run(r *raft) {
 
 // Tick increments the internal logical clock for this Node. Election timeouts
 // and heartbeat timeouts are in units of ticks.
+// Tick 增加这个节点内部的逻辑时钟。选举超时和心跳超时都是以这个tick为单位
 func (n *node) Tick() {
 	select {
 	case n.tickc <- struct{}{}:
@@ -401,12 +442,15 @@ func (n *node) Tick() {
 	}
 }
 
+// Campaign 触发竞选
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
 
+// Propose 打算将data追加到相应entry
 func (n *node) Propose(ctx context.Context, data []byte) error {
 	return n.step(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
 }
 
+// Step
 func (n *node) Step(ctx context.Context, m pb.Message) error {
 	// ignore unexpected local messages receiving over network
 	if IsLocalMsg(m.Type) {
@@ -416,6 +460,7 @@ func (n *node) Step(ctx context.Context, m pb.Message) error {
 	return n.step(ctx, m)
 }
 
+// ProposeConfChange 配置更改建议
 func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChange) error {
 	data, err := cc.Marshal()
 	if err != nil {
@@ -426,6 +471,7 @@ func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChange) error {
 
 // Step advances the state machine using msgs. The ctx.Err() will be returned,
 // if any.
+// step 使用messages 推进状态机状态改变
 func (n *node) step(ctx context.Context, m pb.Message) error {
 	ch := n.recvc
 	if m.Type == pb.MsgProp {
@@ -442,8 +488,10 @@ func (n *node) step(ctx context.Context, m pb.Message) error {
 	}
 }
 
+// Ready 返回node的ready
 func (n *node) Ready() <-chan Ready { return n.readyc }
 
+// Advance
 func (n *node) Advance() {
 	select {
 	case n.advancec <- struct{}{}:
@@ -451,6 +499,7 @@ func (n *node) Advance() {
 	}
 }
 
+// ApplyConfChange 应用配置更改
 func (n *node) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	var cs pb.ConfState
 	select {
@@ -464,6 +513,7 @@ func (n *node) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	return &cs
 }
 
+// Status 返回集群状态
 func (n *node) Status() Status {
 	c := make(chan Status)
 	select {
@@ -474,6 +524,7 @@ func (n *node) Status() Status {
 	}
 }
 
+// ReportUnreachable 报告id节点不可访问
 func (n *node) ReportUnreachable(id uint64) {
 	select {
 	case n.recvc <- pb.Message{Type: pb.MsgUnreachable, From: id}:
@@ -481,6 +532,7 @@ func (n *node) ReportUnreachable(id uint64) {
 	}
 }
 
+// ReportSnapshot 报告snapshot是否接收成功
 func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
@@ -490,6 +542,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	}
 }
 
+// TransferLeadership 触发领导关系更改
 func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) {
 	select {
 	// manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
@@ -499,10 +552,12 @@ func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) 
 	}
 }
 
+// ReadIndex 给状态机发送MsgReadIndex信息
 func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
 	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
 }
 
+// newReady 结合raft及状态信息，创建一个新的ready
 func newReady(r *raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 	rd := Ready{
 		Entries:          r.raftLog.unstableEntries(),
@@ -527,6 +582,7 @@ func newReady(r *raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 
 // MustSync returns true if the hard state and count of Raft entries indicate
 // that a synchronous write to persistent storage is required.
+// MustSync 返回true，如果hard state和raft entries的数量表面需要一个同步的写持久化存储
 func MustSync(st, prevst pb.HardState, entsnum int) bool {
 	// Persistent state on all servers:
 	// (Updated on stable storage before responding to RPCs)

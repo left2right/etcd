@@ -203,18 +203,29 @@ advancing with the given raftpb.Message. Each step is determined by its
 raftpb.MessageType. Note that every step is checked by one common method
 'Step' that safety-checks the terms of node and incoming message to prevent
 stale log entries:
-
+	‘MsgHup’消息被用来选举。如果一个节点是一个follower或者candidate，raft结构体里面的
+	tick函数被设置为tickElection。如果follower或者candidate在选举超时前收到任何心跳消息，
+	它就传递'MsgHup’消息给自己的Step函数，并且将自己设置（或者保持）为candidate，并启动新一轮的选举。
 	'MsgHup' is used for election. If a node is a follower or candidate, the
 	'tick' function in 'raft' struct is set as 'tickElection'. If a follower or
 	candidate has not received any heartbeat before the election timeout, it
 	passes 'MsgHup' to its Step method and becomes (or remains) a candidate to
 	start a new election.
 
+	'MsgBeat’消息是一个内部的类型，通知leader发送一个心跳消息MsgHeartbeat。如果一个节点是leader，
+	raft结构体里面tick函数就被设置为tickHeartbeat，会触发leader发送间隔性的MsgHeartbeat消息
+	给它的followers。
 	'MsgBeat' is an internal type that signals the leader to send a heartbeat of
 	the 'MsgHeartbeat' type. If a node is a leader, the 'tick' function in
 	the 'raft' struct is set as 'tickHeartbeat', and triggers the leader to
 	send periodic 'MsgHeartbeat' messages to its followers.
 
+	'MsgProp’消息是打算将数据追加到它的log entries里。这是一个特殊类型消息，将请求转发给leader。
+	因此，发送方法会用HardState的term覆盖 raftpb.Message的term来避免追加自己本地的term给MsgProp。
+	当MsgProp发送给leader的Step函数时，leader首先调用appendEntry方法来追加entries到自己的log，
+	然后调用bcastAppend方法来发送这些entries给它的peers。当消息传递给candidate，消息被丢弃掉。
+	当传递给follower，MsgProp被存储在follower的mailbox(msgs)。存储发送者的ID，然后通过rafthttp
+	转发给leader。
 	'MsgProp' proposes to append data to its log entries. This is a special
 	type to redirect proposals to leader. Therefore, send method overwrites
 	raftpb.Message's term with its HardState's term to avoid attaching its
@@ -226,6 +237,9 @@ stale log entries:
 	method. It is stored with sender's ID and later forwarded to leader by
 	rafthttp package.
 
+	MsgApp包含要复制的log entries。leader调用bcastAppend，然后调用sendAppend，
+	会发送即将复制的消息MsgApp。当MsgApp发送给candidate的Step函数，candidate转换为从，
+	因为着意味着一个有效的leader发送MsgApp消息。Candidate和follower用MsgAppResp回复该类消息。
 	'MsgApp' contains log entries to replicate. A leader calls bcastAppend,
 	which calls sendAppend, which sends soon-to-be-replicated logs in 'MsgApp'
 	type. When 'MsgApp' is passed to candidate's Step method, candidate reverts
@@ -233,11 +247,21 @@ stale log entries:
 	'MsgApp' messages. Candidate and follower respond to this message in
 	'MsgAppResp' type.
 
+	MsgAppResp是回复log复制请求('MsgApp’)的消息类型。当MsgApp传递给candidate或者
+	follower的Step函数，它通过调用handleAppendEntries函数，来发送MsgAppResp类型
+	消息给raft mailbox.
 	'MsgAppResp' is response to log replication request('MsgApp'). When
 	'MsgApp' is passed to candidate or follower's Step method, it responds by
 	calling 'handleAppendEntries' method, which sends 'MsgAppResp' to raft
 	mailbox.
 
+	MsgVote请求为选举投票。当一个follower或者candidate节点的Step函数收到MsgHup消息时，
+	node节点就调用campaign函数，来使自己campaign竞选成为leader。一旦campaign方法被调用，
+	这个节点就成为candidate并且发送MsgVote给集群中的peers来请求投票。当MsgVote发送给leader
+	或者candidate的Step函数，并且这个消息的term比leader或者candidate小时，MsgVote就被拒绝了。
+	如果leader或者candidate收到有更大term的MsgVote，它就将自己转为follower。当MsgVote被传递给
+	follower，如果发送者最后的term比MsgVote’s的term大或者发送者最后的term和MsgVote一样大，但发
+	送者最后的committed index不比follower小时，follower就给发送者投赞同票。
 	'MsgVote' requests votes for election. When a node is a follower or
 	candidate and 'MsgHup' is passed to its Step method, then the node calls
 	'campaign' method to campaign itself to become a leader. Once 'campaign'
@@ -251,24 +275,37 @@ stale log entries:
 	sender's last term is equal to MsgVote's term but sender's last committed
 	index is greater than or equal to follower's.
 
+	MsgVoteResp消息包含投票请求的响应。当MsgVoteResp被发送给candidate，candidate计算它
+	收到多少投票。如果大于多数，它就成为leader，并且调用bcastAppend。如果candidate收到多数
+	的反对票，它就转换为follower。
 	'MsgVoteResp' contains responses from voting request. When 'MsgVoteResp' is
 	passed to candidate, the candidate calculates how many votes it has won. If
 	it's more than majority (quorum), it becomes leader and calls 'bcastAppend'.
 	If candidate receives majority of votes of denials, it reverts back to
 	follower.
 
+	'MsgPreVote' 和 ‘MsgPreVoteResp’被用在一个可选的两阶段选举协议中。当Config.PreVote是
+	true的时候，pre-election就先被执行（和通常的选举使用一样的规则），没有节点增加它的term，
+	除非pre-election表明竞选节点将赢得选举。这使得一个分隔带节点再次加入集群的干扰最小化。
 	'MsgPreVote' and 'MsgPreVoteResp' are used in an optional two-phase election
 	protocol. When Config.PreVote is true, a pre-election is carried out first
 	(using the same rules as a regular election), and no node increases its term
 	number unless the pre-election indicates that the campaigining node would win.
 	This minimizes disruption when a partitioned node rejoins the cluster.
 
+	MsgSnap请求安装一个snapshot信息。当一个节点刚成为leader或者leader接收到MsgProp消息，
+	它调用bcastAppend方法，然后调用sendAppend方法给每个follower。在sendAppend方法中，
+	如果leader不能获得term或者entries，leader通过发送MsgSnap类型的消息请求安装snapshot。
 	'MsgSnap' requests to install a snapshot message. When a node has just
 	become a leader or the leader receives 'MsgProp' message, it calls
 	'bcastAppend' method, which then calls 'sendAppend' method to each
 	follower. In 'sendAppend', if a leader fails to get term or entries,
 	the leader requests snapshot by sending 'MsgSnap' type message.
 
+	MsgSnapStatus反馈snapshot安装信息的结果。当一个follower拒绝MsgSnap，它表明由于
+	网络等的原因导致MsgSnap的snapshot请求失败了，导致发送snapshot给它的follower失败了。
+	然后leader考虑follower的进程为probe。当MsgSnap没有被拒绝，它表明snapshot成功了，
+	然后leader设置follower的进程为probe并恢复log复制。
 	'MsgSnapStatus' tells the result of snapshot install message. When a
 	follower rejected 'MsgSnap', it indicates the snapshot request with
 	'MsgSnap' had failed from network issues which causes the network layer
@@ -277,6 +314,10 @@ stale log entries:
 	indicates that the snapshot succeeded and the leader sets follower's
 	progress to probe and resumes its log replication.
 
+	MsgHeartbeat 从leader发送心跳。当MsgHeartbeat发送给candidate，并且消息的term比
+	candidate大，candidate就转换为follower，并用心跳的index更新它的committed index。
+	然后它发送消息到它的信箱。当MsgHeartbeat消息发送给follower的Step函数，并且消息的term
+	比follower大，follower用消息的id更新它自己的leader id。
 	'MsgHeartbeat' sends heartbeat from leader. When 'MsgHeartbeat' is passed
 	to candidate and message's term is higher than candidate's, the candidate
 	reverts back to follower and updates its committed index from the one in
@@ -285,11 +326,17 @@ stale log entries:
 	higher than follower's, the follower updates its leaderID with the ID
 	from the message.
 
+	MsgHeartbeatResp用来响应MsgHeartbeat。当MsgHeartbeatResp发送到leader的Step函数，
+	leader知道哪个follower响应的。只有在leader最后一个committed index比follower的match
+	index大时，leader才运行sendAppend方法。
 	'MsgHeartbeatResp' is a response to 'MsgHeartbeat'. When 'MsgHeartbeatResp'
 	is passed to leader's Step method, the leader knows which follower
 	responded. And only when the leader's last committed index is greater than
 	follower's Match index, the leader runs 'sendAppend` method.
 
+	MsgUnreachable说明请求消息没有投递成功。当MsgUnreachable发送到leader的Step函数，
+	leader发现哪个follower不可访问了，通常意味着MsgApp丢失了。当follower的progress
+	状态是replicate，leader设置其为probe。
 	'MsgUnreachable' tells that request(message) wasn't delivered. When
 	'MsgUnreachable' is passed to leader's Step method, the leader discovers
 	that the follower that sent this 'MsgUnreachable' is not reachable, often

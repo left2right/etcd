@@ -25,6 +25,7 @@ import (
 
 // messageEncoder is a encoder that can encode all kinds of messages.
 // It MUST be used with a paired messageDecoder.
+// messageEncoder 是一个可以编码所有类型信息的encoder。它必须有一个匹配的messageDecoder
 type messageEncoder struct {
 	w io.Writer
 }
@@ -38,6 +39,7 @@ func (enc *messageEncoder) encode(m *raftpb.Message) error {
 }
 
 // messageDecoder is a decoder that can decode all kinds of messages.
+// messageDecoder 是一个可以解码所有类型信息的decoder
 type messageDecoder struct {
 	r io.Reader
 }

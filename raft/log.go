@@ -21,20 +21,25 @@ import (
 	pb "github.com/coreos/etcd/raft/raftpb"
 )
 
+// raftLog 存储log entries，分为stable（storage）和unstable
 type raftLog struct {
 	// storage contains all stable entries since the last snapshot.
+	// storage 存储自最近一次snapshot来的所有的stable entries。
 	storage Storage
 
 	// unstable contains all unstable entries and snapshot.
 	// they will be saved into storage.
+	// unstable 包含所有unstable entries和snapshot，这些将被保存到stable storage。
 	unstable unstable
 
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
+	// committed 是在多数节点的stable storage的最大log 的index
 	committed uint64
 	// applied is the highest log position that the application has
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
+	// applied 是应用已经应用到自己状态机的最大log index
 	applied uint64
 
 	logger Logger
@@ -42,6 +47,7 @@ type raftLog struct {
 
 // newLog returns log using the given storage. It recovers the log to the state
 // that it just commits and applies the latest snapshot.
+// newLog 使用storage，创建raftLog实例
 func newLog(storage Storage, logger Logger) *raftLog {
 	if storage == nil {
 		log.Panic("storage must not be nil")
@@ -73,6 +79,8 @@ func (l *raftLog) String() string {
 
 // maybeAppend returns (0, false) if the entries cannot be appended. Otherwise,
 // it returns (last index of new entries, true).
+// maybeAppend 将ents追加到raftLog的unstable log里面，并更新l.committed。在追加前将有冲突（index和raftLog里面相同，但term不同）
+// 的entry去掉
 func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry) (lastnewi uint64, ok bool) {
 	if l.matchTerm(index, logTerm) {
 		lastnewi = index + uint64(len(ents))
@@ -91,6 +99,7 @@ func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry
 	return 0, false
 }
 
+// append将ents更新到unstable里面，并返回raftLog的最后一个index
 func (l *raftLog) append(ents ...pb.Entry) uint64 {
 	if len(ents) == 0 {
 		return l.lastIndex()
@@ -113,6 +122,7 @@ func (l *raftLog) append(ents ...pb.Entry) uint64 {
 // a different term.
 // The first entry MUST have an index equal to the argument 'from'.
 // The index of the given entries MUST be continuously increasing.
+// findConflict 检查ents中entry的term和raftLog中相应index不一样的entry，并将相应index返回
 func (l *raftLog) findConflict(ents []pb.Entry) uint64 {
 	for _, ne := range ents {
 		if !l.matchTerm(ne.Index, ne.Term) {
@@ -126,6 +136,7 @@ func (l *raftLog) findConflict(ents []pb.Entry) uint64 {
 	return 0
 }
 
+// unstableEntries返回unstable的entries
 func (l *raftLog) unstableEntries() []pb.Entry {
 	if len(l.unstable.entries) == 0 {
 		return nil
@@ -136,6 +147,7 @@ func (l *raftLog) unstableEntries() []pb.Entry {
 // nextEnts returns all the available entries for execution.
 // If applied is smaller than the index of snapshot, it returns all committed
 // entries after the index of snapshot.
+// nextEnts 将要被执行到应用的状态机打entries返回
 func (l *raftLog) nextEnts() (ents []pb.Entry) {
 	off := max(l.applied+1, l.firstIndex())
 	if l.committed+1 > off {
@@ -150,11 +162,13 @@ func (l *raftLog) nextEnts() (ents []pb.Entry) {
 
 // hasNextEnts returns if there is any available entries for execution. This
 // is a fast check without heavy raftLog.slice() in raftLog.nextEnts().
+// hasNextEnts检查是否有要被运用到状态机的entry
 func (l *raftLog) hasNextEnts() bool {
 	off := max(l.applied+1, l.firstIndex())
 	return l.committed+1 > off
 }
 
+// snapshot 返回snapshot，如果unstable有则先返回，否则返回storage的snapshot
 func (l *raftLog) snapshot() (pb.Snapshot, error) {
 	if l.unstable.snapshot != nil {
 		return *l.unstable.snapshot, nil
@@ -162,6 +176,7 @@ func (l *raftLog) snapshot() (pb.Snapshot, error) {
 	return l.storage.Snapshot()
 }
 
+// firstIndex返回第一个index，如果unstable有，则返回，否则返回storage的FirstIndex
 func (l *raftLog) firstIndex() uint64 {
 	if i, ok := l.unstable.maybeFirstIndex(); ok {
 		return i
@@ -173,6 +188,7 @@ func (l *raftLog) firstIndex() uint64 {
 	return index
 }
 
+// lastIndex返回最后一个index，如果unstable有，则返回，否则返回storage的LastIndex
 func (l *raftLog) lastIndex() uint64 {
 	if i, ok := l.unstable.maybeLastIndex(); ok {
 		return i
@@ -184,6 +200,7 @@ func (l *raftLog) lastIndex() uint64 {
 	return i
 }
 
+// commitTo更新l.committed到tocommit
 func (l *raftLog) commitTo(tocommit uint64) {
 	// never decrease commit
 	if l.committed < tocommit {
@@ -194,6 +211,7 @@ func (l *raftLog) commitTo(tocommit uint64) {
 	}
 }
 
+// appliedTo将l.applied更新到i
 func (l *raftLog) appliedTo(i uint64) {
 	if i == 0 {
 		return
@@ -204,10 +222,13 @@ func (l *raftLog) appliedTo(i uint64) {
 	l.applied = i
 }
 
+// stableTo 将unstable的offset及entries更新i+1，即index i处为stable
 func (l *raftLog) stableTo(i, t uint64) { l.unstable.stableTo(i, t) }
 
+// stableSnapTo 如果u.snapshot.Metadata.Index == i,则u.snapshot = nil
 func (l *raftLog) stableSnapTo(i uint64) { l.unstable.stableSnapTo(i) }
 
+// lastTerm 返回最后一条idnex的term
 func (l *raftLog) lastTerm() uint64 {
 	t, err := l.term(l.lastIndex())
 	if err != nil {
@@ -216,6 +237,7 @@ func (l *raftLog) lastTerm() uint64 {
 	return t
 }
 
+// term返回i  index的term，先检查unstable，然后检查storage
 func (l *raftLog) term(i uint64) (uint64, error) {
 	// the valid term range is [index of dummy entry, last index]
 	dummyIndex := l.firstIndex() - 1
@@ -238,6 +260,7 @@ func (l *raftLog) term(i uint64) (uint64, error) {
 	panic(err) // TODO(bdarnell)
 }
 
+// entries返回从i到最后的entries，如果超过限制，则进行截取
 func (l *raftLog) entries(i, maxsize uint64) ([]pb.Entry, error) {
 	if i > l.lastIndex() {
 		return nil, nil
@@ -246,6 +269,7 @@ func (l *raftLog) entries(i, maxsize uint64) ([]pb.Entry, error) {
 }
 
 // allEntries returns all entries in the log.
+// allEntries返回firstIndex到最后的entries
 func (l *raftLog) allEntries() []pb.Entry {
 	ents, err := l.entries(l.firstIndex(), noLimit)
 	if err == nil {
@@ -264,10 +288,12 @@ func (l *raftLog) allEntries() []pb.Entry {
 // later term is more up-to-date. If the logs end with the same term, then
 // whichever log has the larger lastIndex is more up-to-date. If the logs are
 // the same, the given log is up-to-date.
+// isUpToDate判断参数lasti,term的entry是否比raftLog里面最后一条lastIndex更新
 func (l *raftLog) isUpToDate(lasti, term uint64) bool {
 	return term > l.lastTerm() || (term == l.lastTerm() && lasti >= l.lastIndex())
 }
 
+// matchTerm 判断index i的term是否和raftLog里面相同
 func (l *raftLog) matchTerm(i, term uint64) bool {
 	t, err := l.term(i)
 	if err != nil {
@@ -276,6 +302,7 @@ func (l *raftLog) matchTerm(i, term uint64) bool {
 	return t == term
 }
 
+// maybeCommit 将合适的index maxIndex 更新到committed里面
 func (l *raftLog) maybeCommit(maxIndex, term uint64) bool {
 	if maxIndex > l.committed && l.zeroTermOnErrCompacted(l.term(maxIndex)) == term {
 		l.commitTo(maxIndex)
@@ -284,6 +311,7 @@ func (l *raftLog) maybeCommit(maxIndex, term uint64) bool {
 	return false
 }
 
+// restore将committed更新到snapshot 的index并更新unstable
 func (l *raftLog) restore(s pb.Snapshot) {
 	l.logger.Infof("log [%s] starts to restore snapshot [index: %d, term: %d]", l, s.Metadata.Index, s.Metadata.Term)
 	l.committed = s.Metadata.Index
@@ -291,6 +319,7 @@ func (l *raftLog) restore(s pb.Snapshot) {
 }
 
 // slice returns a slice of log entries from lo through hi-1, inclusive.
+// slice
 func (l *raftLog) slice(lo, hi, maxSize uint64) ([]pb.Entry, error) {
 	err := l.mustCheckOutOfBounds(lo, hi)
 	if err != nil {
@@ -330,6 +359,7 @@ func (l *raftLog) slice(lo, hi, maxSize uint64) ([]pb.Entry, error) {
 }
 
 // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
+// mustCheckOutOfBounds 检查l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
 func (l *raftLog) mustCheckOutOfBounds(lo, hi uint64) error {
 	if lo > hi {
 		l.logger.Panicf("invalid slice %d > %d", lo, hi)
@@ -346,6 +376,7 @@ func (l *raftLog) mustCheckOutOfBounds(lo, hi uint64) error {
 	return nil
 }
 
+// zeroTermOnErrCompacted 将ErrCompacted返回term为0
 func (l *raftLog) zeroTermOnErrCompacted(t uint64, err error) uint64 {
 	if err == nil {
 		return t

@@ -136,6 +136,9 @@ func (rc *raftNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) {
 
 // publishEntries writes committed log entries to commit channel and returns
 // whether all entries could be published.
+// publishEntries 将committed log entries写入到commit channel，返回是否所有的entries都可以发布
+// 如果entry type是EntryNormal，entries写入到commitC channel，然后数据被kvstore保存起来；如果type是
+// EntryConfChange 调用node ApplyConfChange函数，然后调用transport AddPeer／RemovePeer
 func (rc *raftNode) publishEntries(ents []raftpb.Entry) bool {
 	for i := range ents {
 		switch ents[i].Type {
@@ -300,7 +303,7 @@ func (rc *raftNode) startRaft() {
 	rc.transport.Start()
 	for i := range rc.peers {
 		if i+1 != rc.id {
-			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
+			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]}) //待研究
 		}
 	}
 

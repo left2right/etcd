@@ -46,12 +46,15 @@ type ReadOnlyOption int
 const (
 	// ReadOnlySafe guarantees the linearizability of the read only request by
 	// communicating with the quorum. It is the default and suggested option.
+	// ReadOnlySafe 通过沟通多数节点确保只读请求的线性一致性，是默认建议的选项
 	ReadOnlySafe ReadOnlyOption = iota
 	// ReadOnlyLeaseBased ensures linearizability of the read only request by
 	// relying on the leader lease. It can be affected by clock drift.
 	// If the clock drift is unbounded, leader might keep the lease longer than it
 	// should (clock can move backward/pause without any bound). ReadIndex is not safe
 	// in that case.
+	// ReadOnlyLeaseBased 通过依赖leader的租赁来保证只读请求的线性一致性。但这种方式可能受时钟漂移的影响。
+	// 如果时钟漂移没有是没有限制的，leader可能保持比它应该更长的租赁时间，在这种情形下ReadIndex就不再安全了。
 	ReadOnlyLeaseBased
 )
 
@@ -59,17 +62,21 @@ const (
 const (
 	// campaignPreElection represents the first phase of a normal election when
 	// Config.PreVote is true.
+	// campaignPreElection 表示当Config.PreVote是true时，选举的第一个阶段
 	campaignPreElection CampaignType = "CampaignPreElection"
 	// campaignElection represents a normal (time-based) election (the second phase
 	// of the election when Config.PreVote is true).
+	// campaignElection表示一个选举（当Config.PreVote is true，表示选举的第二个阶段）
 	campaignElection CampaignType = "CampaignElection"
 	// campaignTransfer represents the type of leader transfer
+	// campaignTransfer 表达leader转换
 	campaignTransfer CampaignType = "CampaignTransfer"
 )
 
 // lockedRand is a small wrapper around rand.Rand to provide
 // synchronization. Only the methods needed by the code are exposed
 // (e.g. Intn).
+// lockedRand 通过包装rand.Rand提供同步。只是暴露了一些必须当接口，如Intn
 type lockedRand struct {
 	mu   sync.Mutex
 	rand *rand.Rand
@@ -92,6 +99,7 @@ var globalRand = &lockedRand{
 type CampaignType string
 
 // StateType represents the role of a node in a cluster.
+// StateType表示集群中一个节点的角色
 type StateType uint64
 
 var stmap = [...]string{
@@ -106,14 +114,18 @@ func (st StateType) String() string {
 }
 
 // Config contains the parameters to start a raft.
+// Config 包含启动raft的参数
 type Config struct {
 	// ID is the identity of the local raft. ID cannot be 0.
+	// ID 是本地raft的身份ID，不能为0
 	ID uint64
 
 	// peers contains the IDs of all nodes (including self) in the raft cluster. It
 	// should only be set when starting a new raft cluster. Restarting raft from
 	// previous configuration will panic if peers is set. peer is private and only
 	// used for testing right now.
+	// peers 包含raft集群中所有节点的ID（包括自己的）。它只能在启动一个新的raft集群的时候设置。
+	// 从之前配置重启raft，如果peers设置了，就会触发panic.peer是私有的，现在只是被用做测试。
 	peers []uint64
 
 	// ElectionTick is the number of Node.Tick invocations that must pass between
@@ -122,21 +134,30 @@ type Config struct {
 	// candidate and start an election. ElectionTick must be greater than
 	// HeartbeatTick. We suggest ElectionTick = 10 * HeartbeatTick to avoid
 	// unnecessary leader switching.
+	// ElectionTick 是在选举时传递的Node.Tick调用次数。如果follower在ElectionTick耗尽完前
+	// 没有收到leader当前term的任何消息，它就变为candidate，开始一轮选举。ElectionTick必须要
+	// 比HeartbeatTick大，建议前者是后者的10倍，来避免不必要的leader转换。
 	ElectionTick int
 	// HeartbeatTick is the number of Node.Tick invocations that must pass between
 	// heartbeats. That is, a leader sends heartbeat messages to maintain its
 	// leadership every HeartbeatTick ticks.
+	// HeartbeatTick 是心跳之间，Node.Tick必须要被调用的次数。leader通过心跳消息来维持它的领导地位
 	HeartbeatTick int
 
 	// Storage is the storage for raft. raft generates entries and states to be
 	// stored in storage. raft reads the persisted entries and states out of
 	// Storage when it needs. raft reads out the previous state and configuration
 	// out of storage when restarting.
+	// Storage 是raft 的storage。raft将生成的entries和states保存到storage。raft在需要的时候，
+	// 将持久化的entries和states从storage中读出来。raft在重启的时候将之前的state和配置从storage读出来
 	Storage Storage
 	// Applied is the last applied index. It should only be set when restarting
 	// raft. raft will not return entries to the application smaller or equal to
 	// Applied. If Applied is unset when restarting, raft might return previous
 	// applied entries. This is a very application dependent configuration.
+	// Applied是最后一个被应用的index。在重启raft的时候应该被设置。raft不能返回给application比Applied
+	// 小或者相同的entries。如果Applied在重启的时候没有设置，raft可能返回之前已经应用的entries。这个配置依赖于
+	// 具体的应用
 	Applied uint64
 
 	// MaxSizePerMsg limits the max size of each append message. Smaller value
@@ -144,21 +165,28 @@ type Config struct {
 	// operation). On the other side, it might affect the throughput during normal
 	// replication. Note: math.MaxUint64 for unlimited, 0 for at most one entry per
 	// message.
+	// MaxSizePerMsg 限制每个追加消息的最大值。小的数值能减少raft恢复的开销，另一方面，小的数值可能会
+	// 影响正常复制阶段的吞吐量。
 	MaxSizePerMsg uint64
 	// MaxInflightMsgs limits the max number of in-flight append messages during
 	// optimistic replication phase. The application transportation layer usually
 	// has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid
 	// overflowing that sending buffer. TODO (xiangli): feedback to application to
 	// limit the proposal rate?
+	// MaxInflightMsgs 限制积极复制阶段in-flight追加消息的最大值.应用的传输层通常会有它自己的TCP/UCP
+	// 发送缓冲。
 	MaxInflightMsgs int
 
 	// CheckQuorum specifies if the leader should check quorum activity. Leader
 	// steps down when quorum is not active for an electionTimeout.
+	// CheckQuorum 指定leader是否应该检查多数的活跃性。当一个选举超时，多数节点不活跃，Leader就
+	// 下台。
 	CheckQuorum bool
 
 	// PreVote enables the Pre-Vote algorithm described in raft thesis section
 	// 9.6. This prevents disruption when a node that has been partitioned away
 	// rejoins the cluster.
+	// PreVote 是Pre-Vote算法的开关
 	PreVote bool
 
 	// ReadOnlyOption specifies how the read only request is processed.
@@ -171,13 +199,16 @@ type Config struct {
 	// If the clock drift is unbounded, leader might keep the lease longer than it
 	// should (clock can move backward/pause without any bound). ReadIndex is not safe
 	// in that case.
+	// ReadOnlyOption 指定只读请求是如何被处理的
 	ReadOnlyOption ReadOnlyOption
 
 	// Logger is the logger used for raft log. For multinode which can host
 	// multiple raft group, each raft group can have its own logger
+	// Logger 是用来提供输出raft log
 	Logger Logger
 }
 
+// validate 验证配置是否合理正确
 func (c *Config) validate() error {
 	if c.ID == None {
 		return errors.New("cannot use none as id")
@@ -206,6 +237,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// raft结构体
 type raft struct {
 	id uint64
 
@@ -231,8 +263,10 @@ type raft struct {
 	lead uint64
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in raft thesis 3.10.
+	// leadTransferee 是leader转换的目标id，当数值不为0时
 	leadTransferee uint64
 	// New configuration is ignored if there exists unapplied configuration.
+	// pendingConf 如果存在没有应用的配置，则新的配置忽略掉
 	pendingConf bool
 
 	readOnly *readOnly
@@ -241,10 +275,13 @@ type raft struct {
 	// or candidate.
 	// number of ticks since it reached last electionTimeout or received a
 	// valid message from current leader when it is a follower.
+	// electionElapsed 如果它是leader或者candidate，表达达到electionTimeout已经触发的ticks
+	// 如果它是follower，表达达到electionTimeout或者收到一个从leader的有效消息，前已经触发的ticks
 	electionElapsed int
 
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
+	// heartbeatElapsed 达到heartbeatTimeout前，已经触发的ticks数，只有leader有这个选项
 	heartbeatElapsed int
 
 	checkQuorum bool
@@ -255,6 +292,8 @@ type raft struct {
 	// randomizedElectionTimeout is a random number between
 	// [electiontimeout, 2 * electiontimeout - 1]. It gets reset
 	// when raft changes its state to follower or candidate.
+	// randomizedElectionTimeout 是一个随机的数，在[electiontimeout, 2 * electiontimeout - 1]
+	// 区间之间，如果raft将它的状态改为follower或者candidate，就重置这个数值。
 	randomizedElectionTimeout int
 
 	tick func()
@@ -263,6 +302,8 @@ type raft struct {
 	logger Logger
 }
 
+// newRaft 根据Config c创建一个raft实例。检查配置是否合理，创建raftlog，获取并更新相应的状态
+// 设置peers，创建并初始化相应的Progress，更新applied index，将角色设置为follower，打印log，返回raft
 func newRaft(c *Config) *raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
@@ -317,10 +358,13 @@ func newRaft(c *Config) *raft {
 	return r
 }
 
+// hasLeader 判断是否有leader
 func (r *raft) hasLeader() bool { return r.lead != None }
 
+// softState 返回raft的SoftState
 func (r *raft) softState() *SoftState { return &SoftState{Lead: r.lead, RaftState: r.state} }
 
+// hardState 返回raft的HardState
 func (r *raft) hardState() pb.HardState {
 	return pb.HardState{
 		Term:   r.Term,
@@ -329,8 +373,10 @@ func (r *raft) hardState() pb.HardState {
 	}
 }
 
+// quorum 返回集群多数的数值
 func (r *raft) quorum() int { return len(r.prs)/2 + 1 }
 
+// nodes 返回集群节点id列表
 func (r *raft) nodes() []uint64 {
 	nodes := make([]uint64, 0, len(r.prs))
 	for id := range r.prs {
@@ -341,6 +387,7 @@ func (r *raft) nodes() []uint64 {
 }
 
 // send persists state to stable storage and then sends to its mailbox.
+// send 更新Message m相应的Term（如果需要），并将Message追加到raft的msgs消息队列中
 func (r *raft) send(m pb.Message) {
 	m.From = r.id
 	if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
@@ -365,6 +412,9 @@ func (r *raft) send(m pb.Message) {
 }
 
 // sendAppend sends RPC, with entries to the given peer.
+// sendAppend 发送Message给to节点（该函数应该只能被leader调用？）。如果能获得到raftlog的term和entries，
+// 则将相应的entries包装为Message发送给to，并且在to的progress状态为ProgressStateProbe时，设置其为暂停发送状态；
+// 如果不能获得，则发送snapshot给to，并将to对应的progress的状态,更新为ProgressStateSnapshot。
 func (r *raft) sendAppend(to uint64) {
 	pr := r.prs[to]
 	if pr.IsPaused() {
@@ -424,6 +474,7 @@ func (r *raft) sendAppend(to uint64) {
 }
 
 // sendHeartbeat sends an empty MsgApp
+// sendHeartbeat 发送一个空的MsgApp信息给to节点
 func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
 	// Attach the commit as min(to.matched, r.committed).
 	// When the leader sends out heartbeat message,
@@ -444,6 +495,7 @@ func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
 
 // bcastAppend sends RPC, with entries to all peers that are not up-to-date
 // according to the progress recorded in r.prs.
+// bcastAppend 发送entries（根据各节点的progress，发送不及时的）给除了自己的所有节点
 func (r *raft) bcastAppend() {
 	for id := range r.prs {
 		if id == r.id {
@@ -454,6 +506,7 @@ func (r *raft) bcastAppend() {
 }
 
 // bcastHeartbeat sends RPC, without entries to all the peers.
+// bcastHeartbeat 发送心跳给除自己的所有节点
 func (r *raft) bcastHeartbeat() {
 	lastCtx := r.readOnly.lastPendingRequestCtx()
 	if len(lastCtx) == 0 {
@@ -475,6 +528,7 @@ func (r *raft) bcastHeartbeatWithCtx(ctx []byte) {
 // maybeCommit attempts to advance the commit index. Returns true if
 // the commit index changed (in which case the caller should call
 // r.bcastAppend).
+// maybeCommit尝试将raft的commit index更新到多数节点Match的index处
 func (r *raft) maybeCommit() bool {
 	// TODO(bmizerany): optimize.. Currently naive
 	mis := make(uint64Slice, 0, len(r.prs))
@@ -486,6 +540,7 @@ func (r *raft) maybeCommit() bool {
 	return r.raftLog.maybeCommit(mci, r.Term)
 }
 
+// reset 重新设置raft的状态，更新term，重置状态
 func (r *raft) reset(term uint64) {
 	if r.Term != term {
 		r.Term = term
@@ -510,6 +565,7 @@ func (r *raft) reset(term uint64) {
 	r.readOnly = newReadOnly(r.readOnly.option)
 }
 
+// appendEntry 将entries es追加到raftlog里面，并更新相应的progress
 func (r *raft) appendEntry(es ...pb.Entry) {
 	li := r.raftLog.lastIndex()
 	for i := range es {
@@ -523,6 +579,7 @@ func (r *raft) appendEntry(es ...pb.Entry) {
 }
 
 // tickElection is run by followers and candidates after r.electionTimeout.
+// tickElection 函数被followers 和 candidates在electionTimeout后调用，发起选举
 func (r *raft) tickElection() {
 	r.electionElapsed++
 
@@ -533,6 +590,7 @@ func (r *raft) tickElection() {
 }
 
 // tickHeartbeat is run by leaders to send a MsgBeat after r.heartbeatTimeout.
+// tickHeartbeat 被leader运行，首先做检查选举超时，根据条件放弃leader转换等，在heartbeatTimeout后触发发送一个MsgBeat信息
 func (r *raft) tickHeartbeat() {
 	r.heartbeatElapsed++
 	r.electionElapsed++
@@ -558,6 +616,7 @@ func (r *raft) tickHeartbeat() {
 	}
 }
 
+// becomeFollower 设置raft为follower，并更新step，tick，lead，state和term等状态
 func (r *raft) becomeFollower(term uint64, lead uint64) {
 	r.step = stepFollower
 	r.reset(term)
@@ -567,6 +626,7 @@ func (r *raft) becomeFollower(term uint64, lead uint64) {
 	r.logger.Infof("%x became follower at term %d", r.id, r.Term)
 }
 
+// becomeCandidate 设置raft为candidate，并更新step，tick，vote和term等状态
 func (r *raft) becomeCandidate() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
 	if r.state == StateLeader {
@@ -580,6 +640,7 @@ func (r *raft) becomeCandidate() {
 	r.logger.Infof("%x became candidate at term %d", r.id, r.Term)
 }
 
+// becomePreCandidate 设置raft为preCandidate，并更新step，tick等状态
 func (r *raft) becomePreCandidate() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
 	if r.state == StateLeader {
@@ -594,6 +655,8 @@ func (r *raft) becomePreCandidate() {
 	r.logger.Infof("%x became pre-candidate at term %d", r.id, r.Term)
 }
 
+// becomeLeader 设置raft状态为leader，更新step，term，tick，lead等状态，并检查raftlog entries
+// 中配置更改的entries数量，并做相应处理
 func (r *raft) becomeLeader() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
 	if r.state == StateFollower {
@@ -621,6 +684,8 @@ func (r *raft) becomeLeader() {
 	r.logger.Infof("%x became leader at term %d", r.id, r.Term)
 }
 
+// campaign 竞选leader，根据CampaignType转换到对应的角色，如果达到多数赞同，发起下一个阶段的选举或者成为leader，然后返回,
+// 如果未达到多数赞同，则向其他节点发起投票请求信息
 func (r *raft) campaign(t CampaignType) {
 	var term uint64
 	var voteMsg pb.MessageType
@@ -659,6 +724,7 @@ func (r *raft) campaign(t CampaignType) {
 	}
 }
 
+// poll 将id选举票投给或者拒绝投给该raft，并统计投票给它的节点数
 func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	if v {
 		r.logger.Infof("%x received %s from %x at term %d", r.id, t, id, r.Term)
@@ -676,6 +742,7 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	return granted
 }
 
+// Step raft根据当前状态及m的类型对Message m进行相应的处理，首先检查message的term，在特定情况下leader转换为follower
 func (r *raft) Step(m pb.Message) error {
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
@@ -782,6 +849,7 @@ func (r *raft) Step(m pb.Message) error {
 
 type stepFunc func(r *raft, m pb.Message)
 
+// stepLeader leader处理相应的message
 func stepLeader(r *raft, m pb.Message) {
 	// These message types do not require any progress for m.From.
 	switch m.Type {
@@ -985,6 +1053,8 @@ func stepLeader(r *raft, m pb.Message) {
 
 // stepCandidate is shared by StateCandidate and StatePreCandidate; the difference is
 // whether they respond to MsgVoteResp or MsgPreVoteResp.
+// stepCandidate 函数被StateCandidate和StatePreCandidate两个角色状态共享，只是对消息返回不一样。
+// 对接收到的信息进行相应的处理
 func stepCandidate(r *raft, m pb.Message) {
 	// Only handle vote responses corresponding to our candidacy (while in
 	// StateCandidate, we may get stale MsgPreVoteResp messages in this term from
@@ -1027,6 +1097,7 @@ func stepCandidate(r *raft, m pb.Message) {
 	}
 }
 
+// stepFollower follower对收到的信息进行相应的处理
 func stepFollower(r *raft, m pb.Message) {
 	switch m.Type {
 	case pb.MsgProp:
@@ -1081,6 +1152,7 @@ func stepFollower(r *raft, m pb.Message) {
 	}
 }
 
+// handleAppendEntries 处理响应entries追加信息
 func (r *raft) handleAppendEntries(m pb.Message) {
 	if m.Index < r.raftLog.committed {
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
@@ -1096,11 +1168,13 @@ func (r *raft) handleAppendEntries(m pb.Message) {
 	}
 }
 
+// handleHeartbeat 处理响应心跳信息
 func (r *raft) handleHeartbeat(m pb.Message) {
 	r.raftLog.commitTo(m.Commit)
 	r.send(pb.Message{To: m.From, Type: pb.MsgHeartbeatResp, Context: m.Context})
 }
 
+// handleSnapshot 处理响应snapshot信息
 func (r *raft) handleSnapshot(m pb.Message) {
 	sindex, sterm := m.Snapshot.Metadata.Index, m.Snapshot.Metadata.Term
 	if r.restore(m.Snapshot) {
@@ -1116,6 +1190,7 @@ func (r *raft) handleSnapshot(m pb.Message) {
 
 // restore recovers the state machine from a snapshot. It restores the log and the
 // configuration of state machine.
+// raft 重置snapshot对应的状态数据信息
 func (r *raft) restore(s pb.Snapshot) bool {
 	if s.Metadata.Index <= r.raftLog.committed {
 		return false
@@ -1145,11 +1220,13 @@ func (r *raft) restore(s pb.Snapshot) bool {
 
 // promotable indicates whether state machine can be promoted to leader,
 // which is true when its own id is in progress list.
+// promotable 检查状态机是否可以提升为leader，只有当raft自己的id在progress列表时才可以
 func (r *raft) promotable() bool {
 	_, ok := r.prs[r.id]
 	return ok
 }
 
+// addNode 将raft id加入集群
 func (r *raft) addNode(id uint64) {
 	r.pendingConf = false
 	if _, ok := r.prs[id]; ok {
@@ -1165,6 +1242,7 @@ func (r *raft) addNode(id uint64) {
 	r.prs[id].RecentActive = true
 }
 
+// removeNode 将id的raft节点从集群中去除掉，并尝试更新pending的entries，以及检查相应的leader转换是否可以继续
 func (r *raft) removeNode(id uint64) {
 	r.delProgress(id)
 	r.pendingConf = false
@@ -1185,16 +1263,20 @@ func (r *raft) removeNode(id uint64) {
 	}
 }
 
+// resetPendingConf 设置pendingConf为false
 func (r *raft) resetPendingConf() { r.pendingConf = false }
 
+// setProgress 设置相应raft 的Progress
 func (r *raft) setProgress(id, match, next uint64) {
 	r.prs[id] = &Progress{Next: next, Match: match, ins: newInflights(r.maxInflight)}
 }
 
+// delProgress 删除相应raft id的progress
 func (r *raft) delProgress(id uint64) {
 	delete(r.prs, id)
 }
 
+// loadState 更新raft的HardState相应信息
 func (r *raft) loadState(state pb.HardState) {
 	if state.Commit < r.raftLog.committed || state.Commit > r.raftLog.lastIndex() {
 		r.logger.Panicf("%x state.commit %d is out of range [%d, %d]", r.id, state.Commit, r.raftLog.committed, r.raftLog.lastIndex())
@@ -1219,6 +1301,8 @@ func (r *raft) resetRandomizedElectionTimeout() {
 // the view of the local raft state machine. Otherwise, it returns
 // false.
 // checkQuorumActive also resets all RecentActive to false.
+// checkQuorumActive 返回true，如果从本地raft状态机看多数raft节点是活跃的，否则返回false
+// checkQuorumActive 也将所有RecentActive的节点设置为false
 func (r *raft) checkQuorumActive() bool {
 	var act int
 
@@ -1238,14 +1322,17 @@ func (r *raft) checkQuorumActive() bool {
 	return act >= r.quorum()
 }
 
+// sendTimeoutNow 发送MsgTimeoutNow信息
 func (r *raft) sendTimeoutNow(to uint64) {
 	r.send(pb.Message{To: to, Type: pb.MsgTimeoutNow})
 }
 
+// abortLeaderTransfer 放弃leader转换，即将leadTransferee设置为None
 func (r *raft) abortLeaderTransfer() {
 	r.leadTransferee = None
 }
 
+// numOfPendingConf 统计ents中EntryConfChange的数量
 func numOfPendingConf(ents []pb.Entry) int {
 	n := 0
 	for i := range ents {

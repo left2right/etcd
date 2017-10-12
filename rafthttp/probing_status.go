@@ -28,6 +28,7 @@ var (
 	statusErrorInterval      = 5 * time.Second
 )
 
+// addPeerToProber
 func addPeerToProber(p probing.Prober, id string, us []string) {
 	hus := make([]string, len(us))
 	for i := range us {
@@ -44,6 +45,7 @@ func addPeerToProber(p probing.Prober, id string, us []string) {
 	}
 }
 
+// monitorProbingStatus
 func monitorProbingStatus(s probing.Status, id string) {
 	// set the first interval short to log error early.
 	interval := statusErrorInterval

@@ -34,6 +34,10 @@ const (
 	// to keep the connection alive.
 	// For short term pipeline connections, the connection MUST be killed to avoid it being
 	// put back to http pkg connection pool.
+	// ConnReadTimeout 和 ConnWriteTimeout 是设置在每个rafthttp pkg创建的链接上对i/o超时时间
+	// 5秒超时对回收坏道对链接足够好，不然我们需要等待tcp keepalive 不能发现坏对链接，这需要分钟级别
+	// 对于流式的长链接，rafthttp pkg发送应用层级别的linkHeartbeatMessage信息来保持链接存活
+	// 对于管道对短链接，链接必须被杀死，来避免它呗放回到http pkg链接池里
 	ConnReadTimeout  = 5 * time.Second
 	ConnWriteTimeout = 5 * time.Second
 
@@ -44,6 +48,9 @@ const (
 	// We assume the number of concurrent proposers is smaller than 4096.
 	// One client blocks on its proposal for at least 1 sec, so 4096 is enough
 	// to hold all proposals.
+	// maxPendingProposals 保持在一个leader选举过程的proposals。通常一次leader选举花费1秒时间，
+	// 应该有0～2次冲突，每次花费0.5秒。我们假设当前proposers数量少于4096.一个client阻塞它的proposal至少
+	// 1秒，所以4096是足够保持所有的proposals
 	maxPendingProposals = 4096
 
 	streamAppV2 = "streamMsgAppV2"
@@ -52,30 +59,39 @@ const (
 	sendSnap    = "sendMsgSnap"
 )
 
+// Peer 接口
 type Peer interface {
 	// send sends the message to the remote peer. The function is non-blocking
 	// and has no promise that the message will be received by the remote.
 	// When it fails to send message out, it will report the status to underlying
 	// raft.
+	// send 发送信息到remote peer。这个函数是非阻塞的，不保证信息会被远端接收到。当它发送信息失败
+	// 它将报告状态给raft
 	send(m raftpb.Message)
 
 	// sendSnap sends the merged snapshot message to the remote peer. Its behavior
 	// is similar to send.
+	// sendSnap 发送merged snapshot信息给remote peer。它的行为和send类似
 	sendSnap(m snap.Message)
 
 	// update updates the urls of remote peer.
+	// update 更新remote peer的urls
 	update(urls types.URLs)
 
 	// attachOutgoingConn attaches the outgoing connection to the peer for
 	// stream usage. After the call, the ownership of the outgoing
 	// connection hands over to the peer. The peer will close the connection
 	// when it is no longer used.
+	// attachOutgoingConn 附属outgoing connection到peer处理steam请求。在调用后
+	// outgoing connection的所属权归属于peer。peer将关闭不再使用的connection
 	attachOutgoingConn(conn *outgoingConn)
 	// activeSince returns the time that the connection with the
 	// peer becomes active.
+	// activeSince 返回peer的链接活跃时间
 	activeSince() time.Time
 	// stop performs any necessary finalization and terminates the peer
 	// elegantly.
+	// stop 做些必要的终止操作，将peer优雅的关闭掉
 	stop()
 }
 
@@ -90,6 +106,12 @@ type Peer interface {
 // to the remote follower node.
 // A pipeline is a series of http clients that send http requests to the remote.
 // It is only used when the stream has not been established.
+// peer 是远端raft节点的代表。本地raft节点通过peer发送消息给远端节点
+// 每个peer有两个方式发送消息：stream 和pipeline
+// stream是一个接收器初始化的long-polling链接，是一直为转发消息打开的。除了通用的stream，peer
+// 也有个优化的stream来发送msgApp，msgApp占据大多数的消息。只有raft leader能使用优化的stream来
+// 发送msgApp给远端的follower节点
+// pipeline是一系列http clients，发送http请求给远端节点。只有在stream还没有建立的时候使用
 type peer struct {
 	// id of the remote raft peer node
 	id types.ID
@@ -116,6 +138,7 @@ type peer struct {
 	stopc  chan struct{}
 }
 
+// startPeer 创建并启动peer
 func startPeer(transport *Transport, urls types.URLs, peerID types.ID, fs *stats.FollowerStats) *peer {
 	plog.Infof("starting peer %s...", peerID)
 	defer plog.Infof("started peer %s", peerID)
@@ -204,6 +227,7 @@ func startPeer(transport *Transport, urls types.URLs, peerID types.ID, fs *stats
 	return p
 }
 
+// send 发送信息
 func (p *peer) send(m raftpb.Message) {
 	p.mu.Lock()
 	paused := p.paused
@@ -236,6 +260,7 @@ func (p *peer) update(urls types.URLs) {
 	p.picker.update(urls)
 }
 
+// attachOutgoingConn 附属outgoing connection到peer处理steam请求。
 func (p *peer) attachOutgoingConn(conn *outgoingConn) {
 	var ok bool
 	switch conn.t {
@@ -255,6 +280,7 @@ func (p *peer) activeSince() time.Time { return p.status.activeSince() }
 
 // Pause pauses the peer. The peer will simply drops all incoming
 // messages without returning an error.
+// Pause 暂停peer。这个peer会简单的丢弃所有进入的消息，而且不反错误
 func (p *peer) Pause() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -264,6 +290,7 @@ func (p *peer) Pause() {
 }
 
 // Resume resumes a paused peer.
+// Resume 恢复一个暂停的peer
 func (p *peer) Resume() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -272,6 +299,7 @@ func (p *peer) Resume() {
 	p.msgAppV2Reader.resume()
 }
 
+// stop
 func (p *peer) stop() {
 	plog.Infof("stopping peer %s...", p.id)
 	defer plog.Infof("stopped peer %s", p.id)
@@ -288,6 +316,7 @@ func (p *peer) stop() {
 
 // pick picks a chan for sending the given message. The picked chan and the picked chan
 // string name are returned.
+// pick 挑选一个产用来发送给定的信息。
 func (p *peer) pick(m raftpb.Message) (writec chan<- raftpb.Message, picked string) {
 	var ok bool
 	// Considering MsgSnap may have a big size, e.g., 1G, and will block

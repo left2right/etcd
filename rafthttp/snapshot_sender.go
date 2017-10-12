@@ -34,6 +34,7 @@ var (
 	snapResponseReadTimeout = 5 * time.Second
 )
 
+// snapshotSender
 type snapshotSender struct {
 	from, to types.ID
 	cid      types.ID
@@ -47,6 +48,7 @@ type snapshotSender struct {
 	stopc chan struct{}
 }
 
+// newSnapshotSender
 func newSnapshotSender(tr *Transport, picker *urlPicker, to types.ID, status *peerStatus) *snapshotSender {
 	return &snapshotSender{
 		from:   tr.ID,
@@ -63,6 +65,7 @@ func newSnapshotSender(tr *Transport, picker *urlPicker, to types.ID, status *pe
 
 func (s *snapshotSender) stop() { close(s.stopc) }
 
+// send 发送 merged snapshot信息
 func (s *snapshotSender) send(merged snap.Message) {
 	m := merged.Message
 
@@ -104,6 +107,7 @@ func (s *snapshotSender) send(merged snap.Message) {
 
 // post posts the given request.
 // It returns nil when request is sent out and processed successfully.
+// post posts 给定的请求，返回请求是否被成功发送和处理
 func (s *snapshotSender) post(req *http.Request) (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	req = req.WithContext(ctx)
@@ -142,6 +146,7 @@ func (s *snapshotSender) post(req *http.Request) (err error) {
 	}
 }
 
+// createSnapBody
 func createSnapBody(merged snap.Message) io.ReadCloser {
 	buf := new(bytes.Buffer)
 	enc := &messageEncoder{w: buf}
